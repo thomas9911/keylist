@@ -247,83 +247,88 @@ impl<K, V> std::iter::FromIterator<(K, V)> for Keylist<K, V> {
     }
 }
 
-use serde::de::{Deserialize, Deserializer, MapAccess, SeqAccess, Visitor};
-use serde::ser::{Serialize, Serializer};
-use std::marker::PhantomData;
-
-impl<K: Serialize, V: Serialize> Serialize for Keylist<K, V> {
-    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
-    where
-        S: Serializer,
-    {
-        serializer.serialize_newtype_struct("Keylist", &self.0)
+#[cfg(feature = "serde")]
+mod serde {
+    use crate::Keylist;
+    use serde::de::{Deserialize, Deserializer, MapAccess, SeqAccess, Visitor};
+    use serde::ser::{Serialize, Serializer};
+    use std::marker::PhantomData;
+    
+    impl<K: Serialize, V: Serialize> Serialize for Keylist<K, V> {
+        fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+        where
+            S: Serializer,
+        {
+            serializer.serialize_newtype_struct("Keylist", &self.0)
+        }
     }
-}
-
-struct KeylistVisitor<K, V> {
-    marker: PhantomData<fn() -> Keylist<K, V>>,
-}
-
-impl<K, V> KeylistVisitor<K, V> {
-    fn new() -> Self {
-        KeylistVisitor {
-            marker: PhantomData,
+    
+    struct KeylistVisitor<K, V> {
+        marker: PhantomData<fn() -> Keylist<K, V>>,
+    }
+    
+    impl<K, V> KeylistVisitor<K, V> {
+        fn new() -> Self {
+            KeylistVisitor {
+                marker: PhantomData,
+            }
+        }
+    }
+    
+    impl<'de, K, V> Visitor<'de> for KeylistVisitor<K, V>
+    where
+        K: Deserialize<'de>,
+        V: Deserialize<'de>,
+    {
+        type Value = Keylist<K, V>;
+        fn expecting(&self, formatter: &mut std::fmt::Formatter) -> std::fmt::Result {
+            formatter.write_str("Struct Keylist")
+        }
+    
+        fn visit_seq<X>(self, mut seq: X) -> Result<Self::Value, X::Error>
+        where
+            X: SeqAccess<'de>,
+        {
+            let mut buffer = Vec::new();
+    
+            while let Some(x) = seq.next_element()? {
+                buffer.push(x)
+            }
+            Ok(Keylist(buffer))
+        }
+    
+        fn visit_map<M>(self, mut access: M) -> Result<Self::Value, M::Error>
+        where
+            M: MapAccess<'de>,
+        {
+            let mut buffer = Vec::new();
+    
+            while let Some(x) = access.next_entry()? {
+                buffer.push(x)
+            }
+            Ok(Keylist(buffer))
+        }
+    
+        fn visit_newtype_struct<D>(self, deserializer: D) -> Result<Keylist<K, V>, D::Error>
+        where D: Deserializer<'de>, {
+            deserializer.deserialize_newtype_struct("Keylist", KeylistVisitor::new())
+        }
+    }
+    
+    impl<'de, K, V> Deserialize<'de> for Keylist<K, V>
+    where
+        K: Deserialize<'de>,
+        V: Deserialize<'de>,
+    {
+        fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+        where
+            D: Deserializer<'de>,
+        {
+            deserializer.deserialize_any(KeylistVisitor::new())
         }
     }
 }
 
-impl<'de, K, V> Visitor<'de> for KeylistVisitor<K, V>
-where
-    K: serde::de::Deserialize<'de>,
-    V: serde::de::Deserialize<'de>,
-{
-    type Value = Keylist<K, V>;
-    fn expecting(&self, formatter: &mut std::fmt::Formatter) -> std::fmt::Result {
-        formatter.write_str("Struct Keylist")
-    }
-
-    fn visit_seq<X>(self, mut seq: X) -> Result<Self::Value, X::Error>
-    where
-        X: SeqAccess<'de>,
-    {
-        let mut buffer = Vec::new();
-
-        while let Some(x) = seq.next_element()? {
-            buffer.push(x)
-        }
-        Ok(Keylist(buffer))
-    }
-
-    fn visit_map<M>(self, mut access: M) -> Result<Self::Value, M::Error>
-    where
-        M: MapAccess<'de>,
-    {
-        let mut buffer = Vec::new();
-
-        while let Some(x) = access.next_entry()? {
-            buffer.push(x)
-        }
-        Ok(Keylist(buffer))
-    }
-
-    // fn visit_newtype_struct<D>(self, mut deserializer: D) -> Result<Keylist<K, V>, D::Error>
-    // where D: Deserializer<'de>, {
-    //     deserializer.deserialize_newtype_struct("Keylist", KeylistVisitor::new())
-    // }
-}
-
-impl<'de, K, V> Deserialize<'de> for Keylist<K, V>
-where
-    K: serde::de::Deserialize<'de>,
-    V: serde::de::Deserialize<'de>,
-{
-    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
-    where
-        D: Deserializer<'de>,
-    {
-        deserializer.deserialize_any(KeylistVisitor::new())
-    }
-}
 
 #[cfg(test)]
 mod tests {
@@ -407,44 +412,93 @@ mod tests {
         assert_eq!(keylist.get_sorted(&"b"), Some(&2));
         assert_eq!(keylist.get_sorted(&"f"), None);
     }
+}
+
+#[cfg(all(test, feature = "serde"))]
+mod serde_tests {
+    use crate::Keylist;
+    use serde_test::{assert_de_tokens, assert_ser_tokens, assert_tokens, Token};
 
     #[test]
-    fn serde_de() {
+    fn serde_de_list() {
         let expected = Keylist(vec![("oke", 1), ("test", 15)]);
 
-        let input = r#"
-            [
-                ["oke", 1],
-                ["test", 15]
-            ]
-        "#;
+        assert_de_tokens(
+            &expected,
+            &[
+                Token::Seq { len: Some(2) },
+                Token::Tuple { len: 2 },
+                Token::BorrowedStr("oke"),
+                Token::I32(1),
+                Token::TupleEnd,
+                Token::Tuple { len: 2 },
+                Token::BorrowedStr("test"),
+                Token::I32(15),
+                Token::TupleEnd,
+                Token::SeqEnd,
+            ],
+        );
+    }
 
-        let keylist: Keylist<&str, u32> = serde_json::from_str(input).unwrap();
+    #[test]
+    fn serde_de_map() {
+        let expected = Keylist(vec![("oke", 1), ("test", 15)]);
 
-        let input = r#"
-        {
-            "oke": 1,
-            "test": 15
-        }
-        "#;
-
-        let second_keylist: Keylist<&str, u32> = serde_json::from_str(input).unwrap();
-
-        assert_eq!(expected, keylist);
-        assert_eq!(expected, second_keylist);
+        assert_de_tokens(
+            &expected,
+            &[
+                Token::Map { len: Some(2) },
+                Token::BorrowedStr("oke"),
+                Token::I32(1),
+                Token::BorrowedStr("test"),
+                Token::I32(15),
+                Token::MapEnd,
+            ],
+        );
     }
 
     #[test]
     fn serde_ser() {
-        use serde_json::Value::*;
-        // rewrite to use serde_test
         let input = Keylist(vec![("oke", 1), ("test", 15)]);
-        let expected = Array(vec![
-            Array(vec![String("oke".to_string()), Number(1.into())]),
-            Array(vec![String("test".to_string()), Number(15.into())]),
-        ]);
-        let output = serde_json::to_value(&input).unwrap();
 
-        assert_eq!(expected, output);
+        assert_ser_tokens(
+            &input,
+            &[
+                Token::NewtypeStruct { name: "Keylist" },
+                Token::Seq { len: Some(2) },
+                Token::Tuple { len: 2 },
+                Token::Str("oke"),
+                Token::I32(1),
+                Token::TupleEnd,
+                Token::Tuple { len: 2 },
+                Token::Str("test"),
+                Token::I32(15),
+                Token::TupleEnd,
+                Token::SeqEnd,
+            ],
+        );
+    }
+
+
+    #[test]
+    fn serde_round_trip() {
+        let input = Keylist(vec![("oke", 1), ("test", 15)]);
+
+        assert_tokens(
+            &input,
+            &[
+                Token::NewtypeStruct { name: "Keylist" },
+                Token::Seq { len: Some(2) },
+                Token::Tuple { len: 2 },
+                Token::BorrowedStr("oke"),
+                Token::I32(1),
+                Token::TupleEnd,
+                Token::Tuple { len: 2 },
+                Token::BorrowedStr("test"),
+                Token::I32(15),
+                Token::TupleEnd,
+                Token::SeqEnd,
+            ],
+        );
     }
 }
