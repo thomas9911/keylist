@@ -1,6 +1,6 @@
 [package]
 name = "keylist"
-version = "0.1.0"
+version = "0.1.1"
 authors = ["Thomas <thomastimmer11@hotmail.com>"]
 edition = "2018"
 description = "Elixir keyword list in Rust"
@@ -8,6 +8,7 @@ repository = "https://github.com/thomas9911/keylist"
 license = "Unlicense"
 keywords = ["lists", "tuples", "map"]
 categories = ["data-structures"]
+readme = "README.md"
 
 [dependencies]
 serde = {version = "1.0", optional = true}
