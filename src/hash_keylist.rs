@@ -285,6 +285,22 @@ where
     }
 }
 
+impl<K, V, S> Extend<(K, V)> for HashKeylist<K, V, S>
+where
+    K: Eq + Hash + Clone,
+    V: Eq,
+    S: BuildHasher,
+{
+    #[inline]
+    fn extend<T: IntoIterator<Item = (K, V)>>(&mut self, iter: T) {
+        for (k, v) in iter {
+            let entry = self.data.entry(k.clone()).or_insert(Vec::new());
+            entry.push(v);
+            self.keys.push(k);
+        }
+    }
+}
+
 impl<K, V, S> Clone for HashKeylist<K, V, S>
 where
     K: Hash + Eq + Clone,
@@ -295,6 +311,111 @@ where
         HashKeylist {
             data: self.data.clone(),
             keys: self.keys.clone(),
+        }
+    }
+}
+
+#[cfg(feature = "serde")]
+mod serde {
+    use crate::HashKeylist;
+    use serde::de::{Deserialize, Deserializer, MapAccess, SeqAccess, Visitor};
+    use serde::ser::{Serialize, Serializer};
+    use std::collections::hash_map::RandomState;
+    use std::hash::{BuildHasher, Hash};
+    use std::marker::PhantomData;
+
+    impl<K, V, H> Serialize for HashKeylist<K, V, H>
+    where
+        K: Serialize + Hash + Eq,
+        V: Serialize + Eq,
+        H: BuildHasher,
+    {
+        fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+        where
+            S: Serializer,
+        {
+            serializer.serialize_newtype_struct("HashKeylist", &self.iter().collect::<Vec<_>>())
+        }
+    }
+
+    struct KeylistVisitor<K, V, H>
+    where
+        K: Hash + Eq,
+        V: Eq,
+        H: BuildHasher,
+    {
+        marker: PhantomData<fn() -> HashKeylist<K, V, H>>,
+    }
+
+    impl<K, V, H> KeylistVisitor<K, V, H>
+    where
+        K: Hash + Eq,
+        V: Eq,
+        H: BuildHasher,
+    {
+        fn new() -> Self {
+            KeylistVisitor {
+                marker: PhantomData,
+            }
+        }
+    }
+
+    impl<'de, K, V> Visitor<'de> for KeylistVisitor<K, V, RandomState>
+    where
+        K: Deserialize<'de> + Hash + Eq + Clone,
+        V: Deserialize<'de> + Eq,
+    {
+        type Value = HashKeylist<K, V, RandomState>;
+        fn expecting(&self, formatter: &mut std::fmt::Formatter) -> std::fmt::Result {
+            formatter.write_str("Struct VecKeylist")
+        }
+
+        fn visit_seq<X>(self, mut seq: X) -> Result<Self::Value, X::Error>
+        where
+            X: SeqAccess<'de>,
+        {
+            let mut buffer = Vec::new();
+
+            while let Some(x) = seq.next_element()? {
+                buffer.push(x)
+            }
+
+            Ok(HashKeylist::from(buffer))
+        }
+
+        fn visit_map<M>(self, mut access: M) -> Result<Self::Value, M::Error>
+        where
+            M: MapAccess<'de>,
+        {
+            let mut buffer = Vec::new();
+
+            while let Some(x) = access.next_entry()? {
+                buffer.push(x)
+            }
+            Ok(HashKeylist::from(buffer))
+        }
+
+        fn visit_newtype_struct<D>(
+            self,
+            deserializer: D,
+        ) -> Result<HashKeylist<K, V, RandomState>, D::Error>
+        where
+            D: Deserializer<'de>,
+        {
+            deserializer.deserialize_newtype_struct("HashKeylist", KeylistVisitor::new())
+        }
+    }
+
+    impl<'de, K, V> Deserialize<'de> for HashKeylist<K, V, RandomState>
+    where
+        K: Deserialize<'de> + Hash + Eq + Clone,
+        V: Deserialize<'de> + Eq,
+    {
+        fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+        where
+            D: Deserializer<'de>,
+        {
+            deserializer.deserialize_any(KeylistVisitor::new())
         }
     }
 }
@@ -341,6 +462,24 @@ mod tests {
         assert_eq!(Some(("test", 19)), iter.next());
         assert_eq!(Some(("oke", 2)), iter.next());
         assert_eq!(None, iter.next());
+    }
+
+    #[test]
+    fn extend() {
+        let mut keylist = data();
+
+        keylist.extend(vec![("oke", 3), ("testing", 918), ("test", 55)]);
+
+        let expected = HashKeylist {
+            data: HashMap::from_iter(vec![
+                ("oke", vec![1, 2, 3]),
+                ("test", vec![19, 55]),
+                ("testing", vec![918]),
+            ]),
+            keys: vec!["oke", "test", "oke", "oke", "testing", "test"],
+        };
+
+        assert_eq!(keylist, expected);
     }
 
     #[test]
@@ -673,5 +812,97 @@ mod tests {
             ],
             Vec::from(keylist)
         )
+    }
+}
+
+#[cfg(all(test, feature = "serde"))]
+mod serde_tests {
+    use crate::HashKeylist;
+    use serde_test::{assert_de_tokens, assert_ser_tokens, assert_tokens, Token};
+
+    #[test]
+    fn serde_de_list() {
+        let expected = HashKeylist::from(vec![("oke", 1), ("test", 15)]);
+
+        assert_de_tokens(
+            &expected,
+            &[
+                Token::Seq { len: Some(2) },
+                Token::Tuple { len: 2 },
+                Token::BorrowedStr("oke"),
+                Token::I32(1),
+                Token::TupleEnd,
+                Token::Tuple { len: 2 },
+                Token::BorrowedStr("test"),
+                Token::I32(15),
+                Token::TupleEnd,
+                Token::SeqEnd,
+            ],
+        );
+    }
+
+    #[test]
+    fn serde_de_map() {
+        let expected = HashKeylist::from(vec![("oke", 1), ("test", 15)]);
+
+        assert_de_tokens(
+            &expected,
+            &[
+                Token::Map { len: Some(2) },
+                Token::BorrowedStr("oke"),
+                Token::I32(1),
+                Token::BorrowedStr("test"),
+                Token::I32(15),
+                Token::MapEnd,
+            ],
+        );
+    }
+
+    #[test]
+    fn serde_ser() {
+        let input = HashKeylist::from(vec![("oke", 1), ("test", 15)]);
+
+        assert_ser_tokens(
+            &input,
+            &[
+                Token::NewtypeStruct {
+                    name: "HashKeylist",
+                },
+                Token::Seq { len: Some(2) },
+                Token::Tuple { len: 2 },
+                Token::Str("oke"),
+                Token::I32(1),
+                Token::TupleEnd,
+                Token::Tuple { len: 2 },
+                Token::Str("test"),
+                Token::I32(15),
+                Token::TupleEnd,
+                Token::SeqEnd,
+            ],
+        );
+    }
+
+    #[test]
+    fn serde_round_trip() {
+        let input = HashKeylist::from(vec![("oke", 1), ("test", 15)]);
+
+        assert_tokens(
+            &input,
+            &[
+                Token::NewtypeStruct {
+                    name: "HashKeylist",
+                },
+                Token::Seq { len: Some(2) },
+                Token::Tuple { len: 2 },
+                Token::BorrowedStr("oke"),
+                Token::I32(1),
+                Token::TupleEnd,
+                Token::Tuple { len: 2 },
+                Token::BorrowedStr("test"),
+                Token::I32(15),
+                Token::TupleEnd,
+                Token::SeqEnd,
+            ],
+        );
     }
 }
