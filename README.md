@@ -1,6 +1,6 @@
 # keylist
 
-
+### Keylist
 Map like wrapper around a list with tuple pairs. Inspired by Elixir's Keyword lists.
 
 Because it is just a list with tuples, keys can be anything that can be put in a tuple. Also means that getting a value is not efficient.
@@ -76,3 +76,107 @@ assert_eq!(keylist.get(&vec![0.1235, 34.121551]), Some(&"c"));
 
 
 ```
+
+### HashKeylist
+There is also a more efficient implemetation, backend by a hashmap, therefore the keys should be hashable.
+```rust
+use keylist::HashKeylist;
+use std::collections::HashMap;
+use std::iter::FromIterator;
+
+let mut map = HashMap::new();
+map.insert("one", 1);
+map.insert("two", 2);
+map.insert("three", 3);
+map.insert("four", 4);
+
+let mut keylist = HashKeylist::from_iter(map);
+// sorts keys alphabetically
+keylist.sort_by_key();
+
+keylist.push("one", 11);
+keylist.push("five", 5);
+keylist.push("five", 1);
+
+assert_eq!(
+    vec![
+        (&"four", &4),
+        (&"one", &1),
+        (&"three", &3),
+        (&"two", &2),
+        (&"one", &11),
+        (&"five", &5),
+        (&"five", &1),
+    ],
+    keylist.iter().collect::<Vec<_>>()
+);
+
+keylist.insert(2, "five", 12);
+
+assert_eq!(
+    vec![
+        (&"four", &4),
+        (&"one", &1),
+        (&"five", &12),
+        (&"three", &3),
+        (&"two", &2),
+        (&"one", &11),
+        (&"five", &5),
+        (&"five", &1),
+    ],
+    keylist.iter().collect::<Vec<_>>()
+);
+
+assert_eq!(Some(("five", 1)), keylist.pop());
+
+assert_eq!(
+    vec![
+        (&"four", &4),
+        (&"one", &1),
+        (&"five", &12),
+        (&"three", &3),
+        (&"two", &2),
+        (&"one", &11),
+        (&"five", &5),
+    ],
+    keylist.iter().collect::<Vec<_>>()
+);
+
+assert_eq!(("two", 2), keylist.remove(4));
+
+assert_eq!(
+    vec![
+        (&"four", &4),
+        (&"one", &1),
+        (&"five", &12),
+        (&"three", &3),
+        (&"one", &11),
+        (&"five", &5),
+    ],
+    keylist.iter().collect::<Vec<_>>()
+);
+
+assert_eq!(
+    vec![&"four", &"one", &"five", &"three", &"one", &"five"],
+    keylist.keys().collect::<Vec<_>>()
+);
+
+assert_eq!(
+    vec![&4, &1, &12, &3, &11, &5],
+    keylist.values().collect::<Vec<_>>()
+);
+
+assert_eq!(
+    vec![
+        ("four", 4),
+        ("one", 1),
+        ("five", 12),
+        ("three", 3),
+        ("one", 11),
+        ("five", 5),
+    ],
+    Vec::from(keylist)
+)
+```
+
+License: Unlicense

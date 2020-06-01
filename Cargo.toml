@@ -1,6 +1,6 @@
 [package]
 name = "keylist"
-version = "0.1.1"
+version = "0.2.0"
 authors = ["Thomas <thomastimmer11@hotmail.com>"]
 edition = "2018"
 description = "Elixir keyword list in Rust"
