@@ -603,7 +603,7 @@ mod tests {
     }
 
     #[test]
-    #[should_panic(expected = "assertion failed: index < len")]
+    #[should_panic(expected = "removal index (is 0) should be < len (is 0)")]
     fn remove_empty() {
         let mut keylist: HashKeylist<u8, u8, RandomState> = HashKeylist::new();
         keylist.remove(0);

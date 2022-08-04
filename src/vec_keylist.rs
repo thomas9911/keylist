@@ -1,3 +1,5 @@
+use std::hash::Hash;
+
 #[derive(Debug, PartialEq)]
 pub struct VecKeylist<K, V>(pub Vec<(K, V)>);
 
@@ -170,6 +172,12 @@ impl<K, V> std::iter::FromIterator<(K, V)> for VecKeylist<K, V> {
     }
 }
 
+impl<K: Hash, V: Hash> Hash for VecKeylist<K, V> {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        self.0.hash(state);
+    }
+}
+
 #[cfg(feature = "serde")]
 mod serde {
     use crate::VecKeylist;
@@ -335,6 +343,18 @@ mod tests {
 
         assert_eq!(keylist.get_sorted(&"b"), Some(&2));
         assert_eq!(keylist.get_sorted(&"f"), None);
+    }
+
+    #[test]
+    fn hash() {
+        use std::hash::{Hash, Hasher};
+
+        let mut hasher = std::collections::hash_map::DefaultHasher::default();
+
+        let keylist = VecKeylist(vec![("a", 4), ("a", 9), ("b", 2), ("c", 3), ("d", 1)]);
+
+        keylist.hash(&mut hasher);
+        assert_eq!(145292038701700647, hasher.finish())
     }
 }
 
